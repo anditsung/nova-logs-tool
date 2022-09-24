@@ -95,7 +95,6 @@
                                 <tr
                                     v-for="(log, index) in logs.data"
                                     :key="index"
-                                    class="group"
                                     @click.stop="viewLog(log)"
                                 >
                                     <td
@@ -115,7 +114,7 @@
                                     <td class="px-6 py-2 border-t border-gray-100 dark:border-gray-700 dark:bg-gray-800 group-hover:bg-gray-50 dark:group-hover:bg-gray-900 cursor-pointer">
                                         <button
                                             class="toolbar-button px-2"
-                                            @click.prevent="viewLog(log)"
+                                            @click.stop="viewLog(log)"
                                             v-tooltip.click="__('View')"
                                         >
                                             <Icon type="eye"/>
@@ -163,9 +162,11 @@
         </Card>
 
         <Modal
+            ref="logModal"
             :show="showLog"
-            @close="showLog = null"
-            @close-via-escape="showLog = null"
+            size="7xl"
+            @close="closeLogModal"
+            @close-via-escape="closeLogModal"
         >
             <div class="bg-white rounded-md dark:bg-gray-800">
                 <slot>
@@ -180,24 +181,27 @@
                             <span class="mt-2 uppercase">{{ showLog.level }}</span>
                             <span class="mt-2">{{ showLog.date }}</span>
                         </div>
-                        <div>
-                        <pre class="text-left dark:bg-gray-700"><code class="language-bash whitespace-pre-wrap" ref="outputCodeMessage" v-text="'[message]\n' + showLog.text" /></pre>
-                            <pre class="text-left dark:bg-gray-700"><code class="language-bash whitespace-pre-wrap" ref="outputCodeStack" v-text="showLog.stack" /></pre>
+                        <div class="flex flex-col py-4 space-y-4">
+                            <div class="bg-gray-100 dark:bg-gray-700 p-4">
+                                <div class="mb-2">Message</div>
+                                <textarea class="p-4 border-white" ref="logText" />
+                            </div>
+                            <div class="bg-gray-100 dark:bg-gray-700 p-4">
+                                <div class="mb-2">Stack</div>
+                                <textarea class="p-4 border-white" ref="logStack" />
+                            </div>
                         </div>
                     </ModalContent>
                     <ModalFooter>
-                        <button class="ml-auto px-4 py-2 font-bold text-gray-400 hover:text-gray-300 dark:text-gray-500 dark:hover:text-gray-400" type="button" @click.prevent="showLog = null">
+                        <button class="ml-auto px-4 py-2 font-bold text-gray-400 hover:text-gray-300 dark:text-gray-500 dark:hover:text-gray-400" type="button" @click.prevent="closeLogModal">
                             Close
                         </button>
                     </ModalFooter>
                 </slot>
             </div>
         </Modal>
-
     </div>
 </template>
-
-<style src="prismjs/themes/prism.css" />
 
 <script>
 import api from '../api';
@@ -209,33 +213,31 @@ import IconAlert from './icons/IconAlert';
 import IconCritical from './icons/IconCritical';
 import IconNotice from './icons/IconNotice';
 import IconDebug from './icons/IconDebug';
-
-import Prism from 'prismjs/components/prism-core';
-import 'prismjs/components/prism-bash';
-import {Tab} from "@headlessui/vue";
+import CodeMirror from 'codemirror';
 
 export default {
-    data() {
-        return {
-            deleteModalOpen: false,
-            search: null,
-            loading: true,
-            file: 'laravel.log',
-            files: [],
-            logs: {
-                total: 0,
-                per_page: 2,
-                from: 1,
-                to: 0,
-                data: false,
-                current_page: 1
-            },
-            showLog: null,
-            permissions: {}
-        };
-    },
+
+    data: () => ({
+        logText: null,
+        logStack: null,
+        deleteModalOpen: false,
+        search: null,
+        loading: true,
+        file: 'laravel.log',
+        files: [],
+        logs: {
+            total: 0,
+            per_page: 2,
+            from: 1,
+            to: 0,
+            data: false,
+            current_page: 1
+        },
+        showLog: null,
+        permissions: {}
+    }),
+
     components: {
-        Tab,
         IconError,
         IconInfo,
         IconWarning,
@@ -246,13 +248,12 @@ export default {
         IconDebug
     },
 
-    mounted() {},
-
     async created() {
         document.addEventListener('keydown', this.handleKeydown);
         await this.getLogsPermissions();
         await this.getDailyLogFiles();
         await this.getLogs();
+
     },
 
     computed: {
@@ -268,14 +269,20 @@ export default {
          */
         hasMorePages: function() {
             return Boolean(this.logs && this.logs.next_page_url);
-        }
+        },
     },
 
     methods: {
         handleKeydown(e) {
             if (e.code === 'Escape') {
-                this.showLog = null;
+                this.closeLogModal()
             }
+        },
+
+        closeLogModal() {
+            this.logText = null
+            this.logStack = null
+            this.showLog = null
         },
 
         download() {
@@ -331,12 +338,38 @@ export default {
             });
         },
 
-        viewLog(log) {
+        async viewLog(log) {
             this.showLog = log;
             this.$nextTick(() => {
-                Prism.highlightElement(this.$refs.outputCodeMessage);
-                Prism.highlightElement(this.$refs.outputCodeStack);
-            });
+                // wait for component be rendered then execute
+                this.setupCodeMirror()
+            })
+        },
+
+        setupCodeMirror() {
+            if (this.$refs.logText && this.showLog) {
+                this.logText = CodeMirror.fromTextArea(this.$refs.logText, {
+                    tabSize: 4,
+                    indentWithTabs: true,
+                    lineWrapping: false,
+                    lineNumbers: true,
+                    theme: 'dracula',
+                    readOnly: true,
+                })
+                this.logText.getDoc().setValue(this.showLog.text)
+            }
+
+            if (this.$refs.logStack) {
+                this.logStack = CodeMirror.fromTextArea(this.$refs.logStack, {
+                    tabSize: 4,
+                    indentWithTabs: true,
+                    lineWrapping: false,
+                    lineNumbers: true,
+                    theme: 'dracula',
+                    readOnly: true,
+                })
+                this.logStack.getDoc().setValue(this.showLog.stack)
+            }
         },
 
         openDeleteModal() {
@@ -357,5 +390,3 @@ export default {
     }
 };
 </script>
-
-<style></style>
