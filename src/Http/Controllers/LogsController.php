@@ -55,7 +55,7 @@ class LogsController extends Controller
             abort(403);
         }
 
-        return response()->download(Ward::pathToLogFile($log));
+        return response()->download(Ward::pathToLogFile($log), null, ['Cache-Control' => 'no-store'])->setPrivate();
     }
 
     /**
